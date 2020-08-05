@@ -4,6 +4,13 @@
  * write char depuis bluez:
  * gatttool -b <bdaddr> --char-write-req -a 0x002a -n 0203ffabef
  * 
+ * send indicate de l'esp vers bluez: esp_ble_gatts_send_indicate() j'en mets un dans ESP_GATTS_CONNECT_EVT qui sera déclenché à la connection
+ * 
+ * côté bluez Rx de la data à la connexion:
+ * 
+ * gatttool -b 30:AE:A4:04:C3:5A --interactive
+ * [30:AE:A4:04:C3:5A][LE]> connect
+ * 
  * 
  * 
  */
@@ -29,17 +36,6 @@
 
 static const char *TAG = "GATTSVVNX";
 
-
-
-
-
-/**
- * 
- * 
- * BLUETOOTH
- * 
- * 
- * **/
 
 static void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 
@@ -335,24 +331,11 @@ static void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_i
         esp_ble_gatts_create_service(gatts_if, &gl_profile_tab[PROFILE_A_APP_ID].service_id, GATTS_NUM_HANDLE_TEST_A);
         break;
         
-	/**
-	 * 
-	 * C'est là que ça se passe: write event
-	 * 
-	 * 
-	 * 
-	 * 
-	 * **/    
     
     case ESP_GATTS_WRITE_EVT: {
         ESP_LOGI(TAG, "GATT_WRITE_EVT, conn_id %d, trans_id %d, handle %d", param->write.conn_id, param->write.trans_id, param->write.handle);
         ESP_LOGI(TAG, "GATT_WRITE_EVT, value len %d, value :", param->write.len);
         esp_log_buffer_hex(TAG, param->write.value, param->write.len);
-        
-        
-        
-        
-        
         example_write_event_env(gatts_if, &a_prepare_write_env, param);
         break;
     }
@@ -406,7 +389,7 @@ static void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_i
         const uint8_t *prf_char;
 
         ESP_LOGI(TAG, "ADD_CHAR_EVT, status %d,  attr_handle %d, service_handle %d\n",
-                param->add_char.status, param->add_char.attr_handle, param->add_char.service_handle);
+        param->add_char.status, param->add_char.attr_handle, param->add_char.service_handle);
         gl_profile_tab[PROFILE_A_APP_ID].char_handle = param->add_char.attr_handle;
         gl_profile_tab[PROFILE_A_APP_ID].descr_uuid.len = ESP_UUID_LEN_16;
         gl_profile_tab[PROFILE_A_APP_ID].descr_uuid.uuid.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
@@ -453,19 +436,19 @@ static void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_i
                  param->connect.remote_bda[3], param->connect.remote_bda[4], param->connect.remote_bda[5]);
         gl_profile_tab[PROFILE_A_APP_ID].conn_id = param->connect.conn_id;
         //start sent the update connection parameters to the peer device.
-        esp_ble_gap_update_conn_params(&conn_params);
+        esp_ble_gap_update_conn_params(&conn_params);  
         
-
-
-   
+        //Envoyer un notify
+        uint8_t notify_data[2];
+        notify_data[0] = 0XFF;
+        notify_data[1] = 0XAB;
+        //les 3 1ers paramètres: 0x03, 0, 0x002a        
+        esp_ble_gatts_send_indicate(gl_profile_tab[0].gatts_if, param->connect.conn_id, gl_profile_tab[PROFILE_A_APP_ID].char_handle, sizeof(notify_data), notify_data, false);
         break;
     }
     case ESP_GATTS_DISCONNECT_EVT:
         ESP_LOGI(TAG, "ESP_GATTS_DISCONNECT_EVT, disconnect reason 0x%x", param->disconnect.reason);
         esp_ble_gap_start_advertising(&adv_params);
-
-
-
         break;
     case ESP_GATTS_CONF_EVT:
         ESP_LOGI(TAG, "ESP_GATTS_CONF_EVT, status %d attr_handle %d", param->conf.status, param->conf.handle);
