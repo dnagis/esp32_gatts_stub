@@ -1,6 +1,6 @@
 # ESP32 GATTS STUB
 
-Que du BLE-GATT, pas de sensor spécific.
+Que du BLE-GATTS, pas de sensor specific please
 
 
-
+basé sur esp-idf/examples/bluetooth/bluedroid/ble/gatt_server
