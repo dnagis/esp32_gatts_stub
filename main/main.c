@@ -1,16 +1,21 @@
 /* 
- * Gatts avec un seul profile et dedans un seul service
+ * Gatt Server avec un seul profile et dedans un seul service
  * 
- * write char depuis bluez:
+ * write char depuis bluez (le client) vers ici (le serveur):
  * gatttool -b <bdaddr> --char-write-req -a 0x002a -n 0203ffabef
  * 
- * send indicate de l'esp vers bluez: esp_ble_gatts_send_indicate() j'en mets un dans ESP_GATTS_CONNECT_EVT qui sera déclenché à la connection
+ * send indicate de l'esp (le server) vers bluez (le client): fonction clé = esp_ble_gatts_send_indicate()
  * 
- * côté bluez Rx de la data à la connexion:
+ * côté bluez (= client) voir le Rx de la data:
  * 
  * gatttool -b 30:AE:A4:04:C3:5A --interactive
- * [30:AE:A4:04:C3:5A][LE]> connect
- * 
+ * 		[30:AE:A4:04:C3:5A][LE]> connect
+ * 		Attempting to connect to 30:AE:A4:04:C3:5A
+ * 		Connection successful
+ * 		Notification handle = 0x002a value: ff ab 
+ * 		Notification handle = 0x002a value: ff ab 
+ * 		...
+ * 		[30:AE:A4:04:C3:5A][LE]> disconnect
  * 
  * 
  */
@@ -36,6 +41,8 @@
 
 static const char *TAG = "GATTSVVNX";
 
+TaskHandle_t xHandle = NULL;
+
 
 static void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 
@@ -53,6 +60,9 @@ static void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_i
 #define GATTS_DEMO_CHAR_VAL_LEN_MAX 0x40
 
 #define PREPARE_BUF_MAX_SIZE 1024
+
+
+static uint8_t data_to_send[] = {0xaa,0xbb,0xcc};
 
 
 
@@ -289,6 +299,25 @@ void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble
     prepare_write_env->prepare_len = 0;
 }
 
+/**
+ * 
+ * 
+ * Envoi de data d'ici (le server) vers le client (Bluez, Android...)
+ * 
+ * 
+ * **/
+
+
+void vvnx_send_indicate(esp_ble_gatts_cb_param_t *param){
+	
+	while(1) {		
+        esp_ble_gatts_send_indicate(gl_profile_tab[0].gatts_if, param->connect.conn_id, gl_profile_tab[PROFILE_A_APP_ID].char_handle, sizeof(data_to_send), data_to_send, false);
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
+    }    
+	
+	
+}
+
 static void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param) {
     switch (event) {
     case ESP_GATTS_REG_EVT:
@@ -438,17 +467,19 @@ static void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_i
         //start sent the update connection parameters to the peer device.
         esp_ble_gap_update_conn_params(&conn_params);  
         
-        //Envoyer un notify
-        uint8_t notify_data[2];
-        notify_data[0] = 0XFF;
-        notify_data[1] = 0XAB;
-        //les 3 1ers paramètres: 0x03, 0, 0x002a        
-        esp_ble_gatts_send_indicate(gl_profile_tab[0].gatts_if, param->connect.conn_id, gl_profile_tab[PROFILE_A_APP_ID].char_handle, sizeof(notify_data), notify_data, false);
+        //Lancer une task qui send data vers le client
+        xTaskCreate(&vvnx_send_indicate, "vvnx_send_indicate", 2048, param, 5, &xHandle);
+        
         break;
     }
     case ESP_GATTS_DISCONNECT_EVT:
         ESP_LOGI(TAG, "ESP_GATTS_DISCONNECT_EVT, disconnect reason 0x%x", param->disconnect.reason);
         esp_ble_gap_start_advertising(&adv_params);
+        
+        //arrêter la task démarrée dans connect_evt
+        if( xHandle != NULL ) vTaskDelete( xHandle );
+        
+        
         break;
     case ESP_GATTS_CONF_EVT:
         ESP_LOGI(TAG, "ESP_GATTS_CONF_EVT, status %d attr_handle %d", param->conf.status, param->conf.handle);
